@@ -883,6 +883,114 @@ wait_for_t3() {
   refute_output --partial "config.assistant-t3.local.yaml"
 }
 
+@test "browser dependencies are off by default" {
+  set -eu -o pipefail
+  run ddev add-on get "${DIR}"
+  assert_success
+  run grep -x "ASSISTANT_T3_BROWSER=false" .ddev/.env.assistant-t3
+  assert_success
+  assert_file_not_exists ".ddev/config.assistant-t3-browser.local.yaml"
+  run ddev restart -y
+  assert_success
+  run ddev exec dpkg -s libnss3
+  assert_failure
+}
+
+@test "browser setting rejects values other than true and false" {
+  set -eu -o pipefail
+  mkdir -p .ddev
+  echo "ASSISTANT_T3_BROWSER=yes" > .ddev/.env.assistant-t3
+  run ddev add-on get "${DIR}"
+  assert_failure
+  assert_output --partial "ASSISTANT_T3_BROWSER must be true or false, got 'yes'"
+}
+
+# T3 downloads chrome-headless-shell on first use of the browser panel or an
+# HTML render. Fetch the build T3 pins (apps/server/src/preview/PreviewBrowser.ts)
+# the same way and check it renders a page as the web user, so the package list
+# and the sandbox setting are checked against the real binary. About 130 MB.
+# bats test_tags=browser
+@test "browser opt-in installs what headless Chromium needs" {
+  set -eu -o pipefail
+  git_init_project
+  ASSISTANT_T3_GIT_EXCLUDE=true run ddev add-on get "${DIR}"
+  assert_success
+  run ddev dotenv set .ddev/.env.assistant-t3 --assistant-t3-browser=true
+  assert_success
+  run ddev add-on get "${DIR}"
+  assert_success
+  run grep -F "webimage_extra_packages:" .ddev/config.assistant-t3-browser.local.yaml
+  assert_success
+  # The setting lives in the personal install's excluded files.
+  run git status --porcelain --untracked-files=all
+  assert_output ""
+
+  run ddev restart -y
+  assert_success
+  run ddev exec dpkg -s libnss3 libgbm1 fonts-liberation
+  assert_success
+  run ddev exec fc-match --format=%{file} sans-serif
+  assert_success
+  assert_output --partial "Liberation"
+  run ddev exec printenv T3CODE_SERVER_BROWSER_SANDBOX
+  assert_output "0"
+
+  local version="158.0.8127.88" platform
+  case "$(ddev exec uname -m)" in
+    x86_64) platform=linux64 ;;
+    aarch64) platform=linux-arm64 ;;
+    *) skip "T3 has no headless Chromium for this architecture" ;;
+  esac
+  # The web image has no curl, so download on the host into the mounted app root.
+  run curl -fsSLo chrome-headless-shell.zip "https://storage.googleapis.com/chrome-for-testing-public/${version}/${platform}/chrome-headless-shell-${platform}.zip"
+  assert_success
+  local tools="/mnt/ddev-global-cache/assistant-t3/${PROJNAME}/tools/chrome-headless-shell/${platform}/${version}"
+  run ddev exec bash -c "sudo -n chown \"\$(id -u):\$(id -g)\" /mnt/ddev-global-cache/assistant-t3 && mkdir -p '${tools}' && unzip -q -o chrome-headless-shell.zip -d '${tools}'"
+  assert_success
+  local exe="${tools}/chrome-headless-shell-${platform}/chrome-headless-shell"
+  run ddev exec bash -c "ldd '${exe}' | grep 'not found'"
+  assert_failure
+  run ddev exec "'${exe}' --headless=new --no-sandbox --dump-dom 'data:text/html,<p>assistant-t3</p>' 2>/dev/null"
+  assert_success
+  assert_output --partial "<p>assistant-t3</p>"
+}
+
+# The browser packages go to a config.*.local.yaml, which DDEV's .gitignore
+# keeps out of git, so a team-committed install never adds them to anyone
+# else's image. Turning the setting off or removing the add-on deletes it.
+@test "browser packages stay out of git and go away when turned off" {
+  set -eu -o pipefail
+  git_init_project
+  mkdir -p .ddev
+  echo "ASSISTANT_T3_BROWSER=true" > .ddev/.env.assistant-t3
+  run ddev add-on get "${DIR}"
+  assert_success
+  assert_file_exists ".ddev/config.assistant-t3-browser.local.yaml"
+  run git status --porcelain --untracked-files=all
+  refute_output --partial "config.assistant-t3-browser.local.yaml"
+
+  # A committed ASSISTANT_T3_BROWSER=true would reach every teammate.
+  git add .ddev/.env.assistant-t3
+  git -c user.name=test -c user.email=test@example.com commit -qm "commit the add-on settings"
+  run ddev add-on get "${DIR}"
+  assert_success
+  assert_output --partial "ASSISTANT_T3_BROWSER=true is set in .env.assistant-t3, which git tracks"
+
+  run ddev dotenv set .ddev/.env.assistant-t3 --assistant-t3-browser=false
+  assert_success
+  run ddev add-on get "${DIR}"
+  assert_success
+  assert_file_not_exists ".ddev/config.assistant-t3-browser.local.yaml"
+
+  run ddev dotenv set .ddev/.env.assistant-t3 --assistant-t3-browser=true
+  assert_success
+  run ddev add-on get "${DIR}"
+  assert_success
+  run ddev add-on remove assistant-t3
+  assert_success
+  assert_file_not_exists ".ddev/config.assistant-t3-browser.local.yaml"
+}
+
 # bats test_tags=release
 @test "install from release" {
   set -eu -o pipefail

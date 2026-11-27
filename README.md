@@ -118,6 +118,22 @@ Turning it off removes the block. Installation warns if add-on files are already
 
 Excluded files are ignored files, so `git clean -fdx` deletes them, including `.ddev/t3/settings.json`. Re-run the add-on to restore the rest; T3's pairings and other state live in the Docker volume and survive.
 
+## Browser panel and HTML renders
+
+T3's browser panel and HTML renders run a headless Chromium. On first use, T3 downloads it (about 130 MB) into `T3CODE_HOME`, which the add-on keeps on the `ddev-<project>-assistant` volume, so the download survives `ddev restart` and image rebuilds. The web image lacks the libraries and fonts Chromium needs, though, and the fix T3 suggests, `sudo t3 browser setup`, is lost whenever DDEV recreates the container. Opt in to have the add-on install them in the image instead:
+
+```bash
+ddev dotenv set .ddev/.env.assistant-t3 --assistant-t3-browser=true
+ddev add-on get e0ipso/ddev-assistant-t3
+ddev restart
+```
+
+On a first install, `ASSISTANT_T3_BROWSER=true ddev add-on get e0ipso/ddev-assistant-t3` does the same; after that the saved value in `.ddev/.env.assistant-t3` wins, as with the other settings. Installation warns if `ASSISTANT_T3_BROWSER=true` sits in a `.env.assistant-t3` that git tracks.
+
+This adds the libraries `t3 browser setup` installs, plus `fonts-liberation`, to `webimage_extra_packages` in `.ddev/config.assistant-t3-browser.local.yaml`. DDEV's `.ddev/.gitignore` ignores `config.*.local.yaml` files, so even when a team commits the add-on, these image layers only reach developers who turn the setting on. That makes the web image about 220 MB larger; most of it is Mesa and LLVM, which `libgbm1` depends on. The default is `false`, which adds nothing to the image. With a personal install the setting stays in your excluded `.ddev/.env.assistant-t3`, so other developers' images don't change.
+
+Docker's default seccomp profile blocks the unprivileged user namespaces that Chromium's sandbox needs, so the setting also sets `T3CODE_SERVER_BROWSER_SANDBOX=0`, and Chromium runs without its own sandbox. T3 still runs as your host user, never as root, and Chromium stays inside the web container.
+
 ## Remote access (Tailscale, LAN)
 
 Two things get in the way of a request arriving from a Tailscale peer or another host on
@@ -210,8 +226,9 @@ Configuration lives in these files:
 
 | File | Purpose |
 | ---- | ------- |
-| `.ddev/.env.assistant-t3` | T3 version, port overrides and the personal install setting |
+| `.ddev/.env.assistant-t3` | T3 version, port overrides, the personal install and browser settings |
 | `.ddev/config.assistant-t3.yaml` | Generated DDEV web port exposure |
+| `.ddev/config.assistant-t3-browser.local.yaml` | Generated browser panel packages, only with `ASSISTANT_T3_BROWSER=true` |
 | `.ddev/docker-compose.assistant-t3.yaml` | Generated T3 state volume mount, and direct host port publishing when remote access is enabled |
 | `.ddev/t3/settings.json` | T3 server settings, using T3's settings schema |
 | `.ddev/traefik/config/assistant-t3.yaml` | Generated `ddev-router` override that sends `X-Forwarded-Proto: https` for WebSocket upgrades on the HTTPS port |
@@ -242,6 +259,7 @@ All customization options (use with caution):
 | `ASSISTANT_T3_CONTAINER_PORT` | `--assistant-t3-container-port` | `3773` |
 | `ASSISTANT_T3_DIRECT_BIND_ADDRESS` | `--assistant-t3-direct-bind-address` | `127.0.0.1`. Comma-separated list of host addresses; empty publishes nothing |
 | `ASSISTANT_T3_DIRECT_PORT` | `--assistant-t3-direct-port` | Calculated from `DDEV_SITENAME` |
+| `ASSISTANT_T3_BROWSER` | `--assistant-t3-browser` | `false`. `true` installs the libraries and fonts for T3's browser panel and HTML renders |
 
 The default port pair uses this algorithm:
 

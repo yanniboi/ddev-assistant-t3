@@ -416,7 +416,7 @@ EOF
   ddev exec python3 /var/www/html/header-echo.py > /dev/null 2>&1 &
   echo_pid=$!
   for _ in $(seq 1 15); do
-    curl -s -o /dev/null --max-time 2 "http://${PROJNAME}.ddev.site:21000/" && break
+    curl -sf -o /dev/null --max-time 2 "http://${PROJNAME}.ddev.site:21000/" && break
     sleep 1
   done
 
@@ -598,19 +598,22 @@ EOF
   set -eu -o pipefail
   run ddev add-on get "${DIR}"
   assert_success
-  sed -i.bak '/#ddev-generated/d' .ddev/config.assistant-t3.yaml
-  rm -f .ddev/config.assistant-t3.yaml.bak
   # DDEV deletes #ddev-generated files from traefik/config, so this one has
   # its own marker.
   sed -i.bak '/^# assistant-t3-generated$/d' .ddev/traefik/config/assistant-t3.yaml
   rm -f .ddev/traefik/config/assistant-t3.yaml.bak
   echo "# kept" >> .ddev/traefik/config/assistant-t3.yaml
 
-  # A reinstall leaves the taken-over file alone too.
+  # A reinstall leaves the taken-over router override alone too.
   run ddev add-on get "${DIR}"
   assert_success
   run tail -n 1 .ddev/traefik/config/assistant-t3.yaml
   assert_output "# kept"
+
+  # Install rewrites config.assistant-t3.yaml every time, so take it over only
+  # after the reinstall.
+  sed -i.bak '/#ddev-generated/d' .ddev/config.assistant-t3.yaml
+  rm -f .ddev/config.assistant-t3.yaml.bak
 
   run ddev add-on remove assistant-t3
   assert_success

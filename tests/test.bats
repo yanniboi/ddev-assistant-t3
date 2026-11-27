@@ -115,6 +115,9 @@ health_checks() {
   assert_output --partial "Starting T3 in the web container"
   assert_output --partial 'run "ddev t3 pair"'
   refute_output --partial "EROFS"
+  if [ -n "${expected_direct_bind_addresses}" ]; then
+    assert_output --partial ":${expected_direct_port} (direct"
+  fi
 
   # T3 rewrites settings that hold legacy keys or default values on start, which
   # would dirty this committed file in every project.
@@ -122,7 +125,6 @@ health_checks() {
   assert_output "${settings_before}"
 
   if [ -n "${expected_direct_bind_addresses}" ]; then
-    assert_output --partial ":${expected_direct_port} (direct"
     assert_direct_port_answers "${expected_direct_port}"
   fi
 

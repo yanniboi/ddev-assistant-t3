@@ -929,9 +929,11 @@ wait_for_t3() {
   assert_success
   run ddev exec dpkg -s libnss3 libgbm1 fonts-liberation
   assert_success
-  run ddev exec fc-match --format=%{file} sans-serif
+  # The image already has URW fonts for sans-serif; fonts-liberation adds the
+  # Arial-compatible face that pages ask for.
+  run ddev exec fc-match --format=%{family} Arial
   assert_success
-  assert_output --partial "Liberation"
+  assert_output --partial "Liberation Sans"
   run ddev exec printenv T3CODE_SERVER_BROWSER_SANDBOX
   assert_output "0"
 
